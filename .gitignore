@@ -2,9 +2,10 @@
 __pycache__/
 *.pyc
 memory/*.sqlite
-reports/*.md
-reports/*.pdf
-!reports/.gitkeep
+users/*/reports/*.md
+users/*/reports/*.pdf
+!users/*/reports/.gitkeep
+reports/
 config/secrets.yaml
 .env
 *.log

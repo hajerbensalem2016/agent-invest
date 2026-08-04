@@ -2,27 +2,24 @@
 from __future__ import annotations
 
 import csv
-from pathlib import Path
 
 import yaml
 
-from tools import market
-
-ROOT = Path(__file__).parent.parent
+from tools import market, paths
 
 
-def load_portefeuille() -> list[dict]:
-    with (ROOT / "portefeuille.csv").open() as f:
+def load_portefeuille(user: str = paths.DEFAULT_USER) -> list[dict]:
+    with paths.portefeuille_path(user).open() as f:
         return list(csv.DictReader(f))
 
 
-def load_strategie() -> dict:
-    with (ROOT / "config" / "strategie.yaml").open() as f:
+def load_strategie(user: str = paths.DEFAULT_USER) -> dict:
+    with paths.strategie_path(user).open() as f:
         return yaml.safe_load(f)
 
 
-def calculer_portefeuille() -> dict:
-    positions = load_portefeuille()
+def calculer_portefeuille(user: str = paths.DEFAULT_USER) -> dict:
+    positions = load_portefeuille(user)
     lignes = []
     total_valeur = 0.0
     total_cout = 0.0
@@ -57,6 +54,7 @@ def calculer_portefeuille() -> dict:
         l["poids_pct"] = round(l["valeur_actuelle_eur"] / total_valeur * 100, 2) if total_valeur else 0
 
     return {
+        "user": user,
         "positions": lignes,
         "total_valeur_eur": round(total_valeur, 2),
         "total_cout_eur": round(total_cout, 2),
@@ -65,10 +63,10 @@ def calculer_portefeuille() -> dict:
     }
 
 
-def alertes_concentration() -> list[dict]:
-    strat = load_strategie()
+def alertes_concentration(user: str = paths.DEFAULT_USER) -> list[dict]:
+    strat = load_strategie(user)
     seuil = strat["seuils_risque"]["concentration_max_pct_par_position"]
-    pf = calculer_portefeuille()
+    pf = calculer_portefeuille(user)
     return [
         {
             "type": "concentration",
@@ -82,10 +80,10 @@ def alertes_concentration() -> list[dict]:
     ]
 
 
-def alertes_stop_loss() -> list[dict]:
-    strat = load_strategie()
+def alertes_stop_loss(user: str = paths.DEFAULT_USER) -> list[dict]:
+    strat = load_strategie(user)
     seuil = strat["seuils_risque"]["stop_loss_alerte_pct"]
-    pf = calculer_portefeuille()
+    pf = calculer_portefeuille(user)
     return [
         {
             "type": "stop_loss",
@@ -99,22 +97,20 @@ def alertes_stop_loss() -> list[dict]:
     ]
 
 
-def ecart_allocation() -> dict:
-    """Compare l'allocation reelle a la cible strategie (rudimentaire, MVP)."""
-    strat = load_strategie()["allocation_cible"]
-    pf = calculer_portefeuille()
+def ecart_allocation(user: str = paths.DEFAULT_USER) -> dict:
+    strat = load_strategie(user)["allocation_cible"]
+    pf = calculer_portefeuille(user)
     total = pf["total_valeur_eur"]
     if not total:
         return {"message": "portefeuille vide"}
 
-    # Repartition ETF vs actions (heuristique simple : ticker en 3-5 char = action, sinon ETF)
     etf_val = sum(p["valeur_actuelle_eur"] for p in pf["positions"] if p["ticker"] in {"HLAL", "SPUS", "SPRE", "SPTE"})
     actions_val = total - etf_val
 
     reel = {
         "actions": round(actions_val / total * 100, 2),
         "etf": round(etf_val / total * 100, 2),
-        "cash": 0,  # non tracke dans le MVP
+        "cash": 0,
     }
     ecarts = {k: round(reel[k] - strat[k], 2) for k in ("actions", "etf", "cash")}
-    return {"cible": strat, "reel": reel, "ecart_pct": ecarts}
+    return {"user": user, "cible": strat, "reel": reel, "ecart_pct": ecarts}

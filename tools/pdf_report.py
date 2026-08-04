@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from tools import halal, risk
+from tools import halal, paths, risk
 
 ROOT = Path(__file__).parent.parent
 
@@ -81,12 +81,12 @@ def _classe_pv(pct):
 # MODE DIRECT : PDF sans Claude
 # ============================================================
 
-def generer_pdf_direct() -> Path:
+def generer_pdf_direct(user: str = paths.DEFAULT_USER) -> Path:
     """Genere un PDF a partir des tools locaux (sans Claude), utile pour test rapide."""
-    pf = risk.calculer_portefeuille()
-    alertes_conc = risk.alertes_concentration()
-    alertes_sl = risk.alertes_stop_loss()
-    alloc = risk.ecart_allocation()
+    pf = risk.calculer_portefeuille(user)
+    alertes_conc = risk.alertes_concentration(user)
+    alertes_sl = risk.alertes_stop_loss(user)
+    alloc = risk.ecart_allocation(user)
 
     pdf = RapportPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -157,7 +157,7 @@ def generer_pdf_direct() -> Path:
         _render_tableau_alloc(pdf, alloc)
 
     now = datetime.now().strftime("%Y-%m-%d_%H%M")
-    out = ROOT / "reports" / f"rapport_direct_{now}.pdf"
+    out = paths.reports_dir(user) / f"rapport_direct_{now}.pdf"
     pdf.output(str(out))
     return out
 
@@ -166,7 +166,7 @@ def generer_pdf_direct() -> Path:
 # MODE CLAUDE : parse markdown -> PDF
 # ============================================================
 
-def generer_pdf_depuis_markdown(markdown: str, titre_fichier: str | None = None) -> Path:
+def generer_pdf_depuis_markdown(markdown: str, user: str = paths.DEFAULT_USER, titre_fichier: str | None = None) -> Path:
     """Convertit un rapport markdown Claude en PDF style Agent Invest."""
     pdf = RapportPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -183,7 +183,7 @@ def generer_pdf_depuis_markdown(markdown: str, titre_fichier: str | None = None)
 
     now = datetime.now().strftime("%Y-%m-%d_%H%M")
     nom = titre_fichier or f"rapport_claude_{now}.pdf"
-    out = ROOT / "reports" / nom
+    out = paths.reports_dir(user) / nom
     pdf.output(str(out))
     return out
 
@@ -351,5 +351,5 @@ def _bloc_colore(pdf, texte, fond, bordure):
 
 
 # Backward compat
-def generer_pdf() -> Path:
-    return generer_pdf_direct()
+def generer_pdf(user: str = paths.DEFAULT_USER) -> Path:
+    return generer_pdf_direct(user)

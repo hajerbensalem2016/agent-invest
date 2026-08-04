@@ -1,0 +1,49 @@
+investisseur:
+  pays: France
+  courtier: Interactive Brokers
+  enveloppe: CTO
+  profil_risque: modere
+  horizon_annees: 10
+  epargne_mensuelle_eur: 500
+
+objectifs:
+  patrimoine_cible_eur: 200000
+  echeance_annees: 10
+  description: Constitution patrimoine halal long terme
+
+valeurs:
+  conformite: islamique
+  normes: AAOIFI
+  interdits:
+    - banques conventionnelles
+    - alcool
+    - tabac
+    - armement
+    - jeux d'argent
+    - assurance conventionnelle
+    - divertissement adulte
+    - porc
+  seuils_financiers:
+    dette_totale_max_pct_actif: 33
+    revenus_illicites_max_pct: 5
+
+allocation_cible:
+  actions: 70
+  etf: 20
+  cash: 10
+
+allocation_geo_cible:
+  usa: 50
+  europe: 30
+  emergents: 15
+  autres: 5
+
+seuils_risque:
+  concentration_max_pct_par_position: 15
+  concentration_max_pct_par_secteur: 30
+  stop_loss_alerte_pct: -20
+  take_profit_alerte_pct: 50
+
+fiscalite:
+  regime: PFU 30%
+  compensation_moins_values: true

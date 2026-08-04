@@ -1,0 +1,128 @@
+# Liste tickers reputes halal-compatibles (source : Zoya, Islamicly - a valider individuellement)
+# A enrichir dans le temps. Pour MVP, ~30 tickers connus.
+
+tickers_halal:
+  # Tech US
+  - ticker: AAPL
+    nom: Apple Inc
+    secteur: tech
+    note: verifie Zoya
+  - ticker: MSFT
+    nom: Microsoft
+    secteur: tech
+    note: verifie Zoya
+  - ticker: GOOGL
+    nom: Alphabet
+    secteur: tech
+    note: verifie Zoya - ratios OK
+  - ticker: NVDA
+    nom: Nvidia
+    secteur: tech
+    note: verifie Zoya
+  - ticker: ADBE
+    nom: Adobe
+    secteur: tech
+    note: verifie Zoya
+  - ticker: CRM
+    nom: Salesforce
+    secteur: tech
+    note: verifie Zoya
+  - ticker: ORCL
+    nom: Oracle
+    secteur: tech
+    note: a verifier ratio dette
+
+  # Sante
+  - ticker: JNJ
+    nom: Johnson and Johnson
+    secteur: sante
+    note: verifie Zoya
+  - ticker: PFE
+    nom: Pfizer
+    secteur: sante
+    note: verifie Zoya
+  - ticker: LLY
+    nom: Eli Lilly
+    secteur: sante
+    note: verifie Zoya
+
+  # Industrie / Energie propre
+  - ticker: TSLA
+    nom: Tesla
+    secteur: auto_energie
+    note: verifie Zoya - halal
+  - ticker: NEE
+    nom: NextEra Energy
+    secteur: energie_renouvelable
+    note: verifie Zoya
+
+  # Consommation halal-friendly
+  - ticker: PG
+    nom: Procter and Gamble
+    secteur: consommation
+    note: verifie Zoya
+  - ticker: NKE
+    nom: Nike
+    secteur: consommation
+    note: verifie Zoya
+
+  # ETF halal
+  - ticker: HLAL
+    nom: Wahed FTSE USA Shariah ETF
+    secteur: etf_halal
+    note: ETF 100% halal certified
+  - ticker: SPUS
+    nom: SP Funds S&P 500 Sharia Industry Exclusions ETF
+    secteur: etf_halal
+    note: ETF 100% halal certified
+  - ticker: SPRE
+    nom: SP Funds S&P Global REIT Sharia ETF
+    secteur: etf_halal_reit
+    note: ETF immobilier halal
+  - ticker: SPTE
+    nom: SP Funds S&P Global Technology Sharia ETF
+    secteur: etf_halal_tech
+    note: ETF tech halal
+
+  # Europe (a completer)
+  - ticker: ASML.AS
+    nom: ASML Holding
+    secteur: tech_europe
+    note: verifie Zoya
+  - ticker: SAP.DE
+    nom: SAP SE
+    secteur: tech_europe
+    note: a verifier
+
+# Tickers explicitement NON halal (liste de detection rapide)
+tickers_non_halal:
+  - ticker: JPM
+    raison: banque conventionnelle
+  - ticker: BAC
+    raison: banque conventionnelle
+  - ticker: GS
+    raison: banque conventionnelle
+  - ticker: WFC
+    raison: banque conventionnelle
+  - ticker: C
+    raison: banque conventionnelle
+  - ticker: BUD
+    raison: alcool (Anheuser-Busch)
+  - ticker: MO
+    raison: tabac (Altria)
+  - ticker: PM
+    raison: tabac (Philip Morris)
+  - ticker: LMT
+    raison: armement (Lockheed Martin)
+  - ticker: RTX
+    raison: armement (Raytheon)
+  - ticker: BA
+    raison: armement partiel (Boeing defense)
+  - ticker: MGM
+    raison: jeux d'argent
+  - ticker: WYNN
+    raison: jeux d'argent
+  - ticker: AIG
+    raison: assurance conventionnelle
+  - ticker: MET
+    raison: assurance conventionnelle

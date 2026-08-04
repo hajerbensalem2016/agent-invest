@@ -1,164 +1,355 @@
-"""Genere un rapport PDF a partir des donnees du portefeuille (sans Claude)."""
+"""Genere un rapport PDF a partir des donnees + optionnellement du rapport Claude en markdown.
+
+Deux modes :
+- Mode DIRECT : appelle risk/halal directement et fait un PDF sans Claude (rapide, sans SDK)
+- Mode CLAUDE : prend le markdown produit par orchestrator.py et le convertit en PDF
+"""
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 
-from weasyprint import HTML
+from fpdf import FPDF
 
 from tools import halal, risk
 
 ROOT = Path(__file__).parent.parent
 
-
-CSS = """
-@page { size: A4; margin: 2cm; }
-body { font-family: 'Helvetica', 'Arial', sans-serif; color: #222; font-size: 11pt; line-height: 1.5; }
-h1 { color: #1a1a1a; border-bottom: 3px solid #2563eb; padding-bottom: 8px; }
-h2 { color: #2563eb; margin-top: 24px; border-left: 4px solid #2563eb; padding-left: 10px; }
-h3 { color: #444; margin-top: 18px; }
-.header { text-align: center; margin-bottom: 20px; color: #666; font-size: 10pt; }
-.summary { background: #f0f9ff; border: 1px solid #bae6fd; padding: 15px; border-radius: 8px; margin: 15px 0; }
-.summary .big { font-size: 24pt; font-weight: bold; color: #0369a1; }
-.summary .green { color: #16a34a; }
-.summary .red { color: #dc2626; }
-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 10pt; }
-th { background: #2563eb; color: white; padding: 8px; text-align: left; }
-td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
-tr:nth-child(even) { background: #f9fafb; }
-.gain { color: #16a34a; font-weight: bold; }
-.loss { color: #dc2626; font-weight: bold; }
-.badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 9pt; font-weight: bold; }
-.badge-halal { background: #dcfce7; color: #166534; }
-.badge-non-halal { background: #fee2e2; color: #991b1b; }
-.badge-inconnu { background: #fef3c7; color: #92400e; }
-.alerte { background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px; margin: 10px 0; }
-.alerte-orange { background: #fff7ed; border-left: 4px solid #ea580c; padding: 12px; margin: 10px 0; }
-.info { background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px; margin: 10px 0; }
-.footer { margin-top: 40px; text-align: center; font-size: 9pt; color: #999; border-top: 1px solid #e5e7eb; padding-top: 10px; }
-"""
+BLEU = (37, 99, 235)
+VERT = (22, 163, 74)
+ROUGE = (220, 38, 38)
+ORANGE = (234, 88, 12)
+VIOLET = (147, 51, 234)
+GRIS_FONCE = (34, 34, 34)
+GRIS_CLAIR = (156, 163, 175)
+FOND_BLEU = (240, 249, 255)
+FOND_ROUGE = (254, 226, 226)
+FOND_ORANGE = (255, 247, 237)
+FOND_VERT = (220, 252, 231)
+FOND_VIOLET = (250, 245, 255)
+FOND_GRIS = (249, 250, 251)
 
 
-def _classe_pv(pv_pct: float) -> str:
-    return "gain" if pv_pct >= 0 else "loss"
+class RapportPDF(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 18)
+        self.set_text_color(*GRIS_FONCE)
+        self.cell(0, 10, "Rapport quotidien - Agent Invest", ln=True)
+        self.set_draw_color(*BLEU)
+        self.set_line_width(1)
+        self.line(10, 22, 200, 22)
+        self.ln(5)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(*GRIS_CLAIR)
+        self.cell(0, 10, f"Page {self.page_no()} - Agent Invest - Ne constitue pas un conseil en investissement.", align="C")
+
+    def section_title(self, txt):
+        self.ln(3)
+        self.set_font("Helvetica", "B", 13)
+        self.set_text_color(*BLEU)
+        self.cell(0, 8, txt, ln=True)
+        self.set_draw_color(*BLEU)
+        self.set_line_width(0.5)
+        self.line(10, self.get_y(), 60, self.get_y())
+        self.ln(3)
+
+    def paragraphe(self, txt, taille=10, gras=False, couleur=None):
+        if couleur is None:
+            couleur = GRIS_FONCE
+        self.set_font("Helvetica", "B" if gras else "", taille)
+        self.set_text_color(*couleur)
+        self.set_x(10)
+        self.multi_cell(0, 5, txt)
 
 
-def _badge_halal(statut: dict) -> str:
-    if statut["halal"] is True:
-        return '<span class="badge badge-halal">HALAL</span>'
-    if statut["halal"] is False:
-        return '<span class="badge badge-non-halal">NON HALAL</span>'
-    return '<span class="badge badge-inconnu">A VERIFIER</span>'
+def _euros(v):
+    try:
+        return f"{float(v):,.0f} EUR".replace(",", " ")
+    except (ValueError, TypeError):
+        return "N/A"
 
 
-def generer_html() -> str:
+def _classe_pv(pct):
+    return VERT if pct >= 0 else ROUGE
+
+
+# ============================================================
+# MODE DIRECT : PDF sans Claude
+# ============================================================
+
+def generer_pdf_direct() -> Path:
+    """Genere un PDF a partir des tools locaux (sans Claude), utile pour test rapide."""
     pf = risk.calculer_portefeuille()
     alertes_conc = risk.alertes_concentration()
     alertes_sl = risk.alertes_stop_loss()
     alloc = risk.ecart_allocation()
 
-    now = datetime.now().strftime("%d/%m/%Y a %Hh%M")
+    pdf = RapportPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
 
-    lignes_html = ""
-    for p in pf["positions"]:
-        statut = halal.check_halal(p["ticker"])
-        badge = _badge_halal(statut)
-        cls = _classe_pv(p["plus_value_pct"])
-        signe = "+" if p["plus_value_eur"] >= 0 else ""
-        lignes_html += f"""
-        <tr>
-            <td><b>{p['ticker']}</b> {badge}</td>
-            <td>{p['quantite']:.0f}</td>
-            <td>{p['poids_pct']:.1f}%</td>
-            <td>{p['valeur_actuelle_eur']:,.0f} EUR</td>
-            <td>{p['prix_achat_eur']:.2f} -> {p['prix_actuel_eur']:.2f}</td>
-            <td class="{cls}">{signe}{p['plus_value_eur']:,.0f} EUR ({signe}{p['plus_value_pct']:.1f}%)</td>
-        </tr>
-        """
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*GRIS_CLAIR)
+    pdf.cell(0, 5, f"Genere le {datetime.now().strftime('%d/%m/%Y a %Hh%M')}", ln=True)
+    pdf.ln(3)
 
-    total_cls = _classe_pv(pf["plus_value_totale_pct"])
-    total_signe = "+" if pf["plus_value_totale_eur"] >= 0 else ""
+    # Encart valeur
+    y = pdf.get_y()
+    pdf.set_fill_color(*FOND_BLEU)
+    pdf.set_draw_color(*BLEU)
+    pdf.rect(10, y, 190, 32, style="DF")
+    pdf.set_xy(15, y + 3)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(*GRIS_FONCE)
+    pdf.cell(0, 5, "Valeur totale du portefeuille", ln=True)
+    pdf.set_x(15)
+    pdf.set_font("Helvetica", "B", 22)
+    pdf.set_text_color(3, 105, 161)
+    pdf.cell(0, 10, _euros(pf["total_valeur_eur"]), ln=True)
+    pdf.set_x(15)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(*GRIS_FONCE)
+    pdf.cell(0, 5, f"Investi : {_euros(pf['total_cout_eur'])}", ln=True)
+    pdf.set_x(15)
+    signe = "+" if pf["plus_value_totale_eur"] >= 0 else ""
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*_classe_pv(pf["plus_value_totale_pct"]))
+    pdf.cell(0, 5, f"Performance : {signe}{_euros(pf['plus_value_totale_eur'])} ({signe}{pf['plus_value_totale_pct']:.1f}%)", ln=True)
+    pdf.set_y(y + 35)
 
-    conc_html = ""
-    if alertes_conc:
-        for a in alertes_conc:
-            conc_html += f'<div class="alerte-orange"><b>{a["ticker"]}</b> pese {a["poids_pct"]}% (seuil {a["seuil_pct"]}%) - a rebalancer</div>'
-    else:
-        conc_html = '<div class="info">Aucune position ne depasse le seuil de concentration.</div>'
+    # Positions
+    pdf.section_title("Positions detenues")
+    _render_tableau_positions(pdf, pf["positions"])
 
-    sl_html = ""
-    if alertes_sl:
-        for a in alertes_sl:
-            sl_html += f'<div class="alerte"><b>{a["ticker"]}</b> a {a["plus_value_pct"]}% (seuil {a["seuil_pct"]}%) - decision requise</div>'
-    else:
-        sl_html = '<div class="info">Aucune position n\'a atteint le seuil de stop-loss.</div>'
-
+    # Halal
+    pdf.section_title("Conformite Halal")
     non_halal = [p for p in pf["positions"] if halal.check_halal(p["ticker"])["halal"] is False]
-    non_halal_html = ""
     if non_halal:
         for p in non_halal:
             statut = halal.check_halal(p["ticker"])
-            non_halal_html += (
-                f'<div class="alerte"><b>{p["ticker"]}</b> ({statut["raison"]}) - '
-                f'{p["poids_pct"]:.1f}% du portefeuille = {p["valeur_actuelle_eur"]:,.0f} EUR a sortir</div>'
-            )
+            _bloc_colore(pdf, f"{p['ticker']} ({statut['raison']}) - {p['poids_pct']:.1f}% = {_euros(p['valeur_actuelle_eur'])} A SORTIR", FOND_ROUGE, ROUGE)
     else:
-        non_halal_html = '<div class="info">Aucune position non-halal detectee.</div>'
+        _bloc_colore(pdf, "Aucune position non-halal.", FOND_VERT, VERT)
 
-    ecart_html = ""
+    # Concentration
+    pdf.section_title("Alertes de concentration")
+    if alertes_conc:
+        for a in alertes_conc:
+            _bloc_colore(pdf, f"{a['ticker']} pese {a['poids_pct']}% (seuil {a['seuil_pct']}%)", FOND_ORANGE, ORANGE)
+    else:
+        _bloc_colore(pdf, "Aucune concentration excessive.", FOND_VERT, VERT)
+
+    # Stop-loss
+    pdf.section_title("Alertes stop-loss")
+    if alertes_sl:
+        for a in alertes_sl:
+            _bloc_colore(pdf, f"{a['ticker']} a {a['plus_value_pct']}% (seuil {a['seuil_pct']}%)", FOND_ROUGE, ROUGE)
+    else:
+        _bloc_colore(pdf, "Aucun stop-loss atteint.", FOND_VERT, VERT)
+
+    # Ecart alloc
     if isinstance(alloc.get("ecart_pct"), dict):
-        ecart_html = "<table><tr><th>Categorie</th><th>Cible</th><th>Reel</th><th>Ecart</th></tr>"
-        for k in ("actions", "etf", "cash"):
-            e = alloc["ecart_pct"][k]
-            cls = "gain" if abs(e) < 5 else "loss"
-            signe = "+" if e >= 0 else ""
-            ecart_html += (
-                f'<tr><td>{k.capitalize()}</td><td>{alloc["cible"][k]}%</td>'
-                f'<td>{alloc["reel"][k]}%</td><td class="{cls}">{signe}{e}%</td></tr>'
-            )
-        ecart_html += "</table>"
+        pdf.section_title("Ecart avec ta strategie")
+        _render_tableau_alloc(pdf, alloc)
 
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><style>{CSS}</style></head><body>
-
-<h1>Rapport quotidien - Agent Invest</h1>
-<div class="header">Genere le {now} - Portefeuille Interactive Brokers</div>
-
-<div class="summary">
-    <div>Valeur totale du portefeuille</div>
-    <div class="big">{pf['total_valeur_eur']:,.0f} EUR</div>
-    <div>Cout total investi : {pf['total_cout_eur']:,.0f} EUR</div>
-    <div class="{total_cls}"><b>Performance : {total_signe}{pf['plus_value_totale_eur']:,.0f} EUR ({total_signe}{pf['plus_value_totale_pct']:.1f}%)</b></div>
-</div>
-
-<h2>Positions</h2>
-<table>
-<tr><th>Titre</th><th>Qte</th><th>Poids</th><th>Valeur</th><th>Prix achat -> actuel</th><th>Performance</th></tr>
-{lignes_html}
-</table>
-
-<h2>Conformite Halal</h2>
-{non_halal_html}
-
-<h2>Alertes de concentration</h2>
-{conc_html}
-
-<h2>Alertes stop-loss</h2>
-{sl_html}
-
-<h2>Ecart avec ta strategie</h2>
-{ecart_html}
-
-<div class="footer">
-    Agent Invest MVP - Donnees Yahoo Finance temps reel - Ce rapport ne constitue pas un conseil en investissement.
-</div>
-
-</body></html>"""
-
-
-def generer_pdf() -> Path:
-    html_str = generer_html()
     now = datetime.now().strftime("%Y-%m-%d_%H%M")
-    out = ROOT / "reports" / f"rapport_{now}.pdf"
-    HTML(string=html_str).write_pdf(str(out))
+    out = ROOT / "reports" / f"rapport_direct_{now}.pdf"
+    pdf.output(str(out))
     return out
+
+
+# ============================================================
+# MODE CLAUDE : parse markdown -> PDF
+# ============================================================
+
+def generer_pdf_depuis_markdown(markdown: str, titre_fichier: str | None = None) -> Path:
+    """Convertit un rapport markdown Claude en PDF style Agent Invest."""
+    pdf = RapportPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*GRIS_CLAIR)
+    pdf.cell(0, 5, f"Genere le {datetime.now().strftime('%d/%m/%Y a %Hh%M')}", ln=True)
+    pdf.ln(3)
+
+    lignes = markdown.split("\n")
+    for ligne in lignes:
+        _render_ligne_markdown(pdf, ligne)
+
+    now = datetime.now().strftime("%Y-%m-%d_%H%M")
+    nom = titre_fichier or f"rapport_claude_{now}.pdf"
+    out = ROOT / "reports" / nom
+    pdf.output(str(out))
+    return out
+
+
+def _render_ligne_markdown(pdf, ligne: str):
+    """Convertit une ligne markdown en element PDF."""
+    l = ligne.rstrip()
+
+    if not l.strip():
+        pdf.ln(2)
+        return
+
+    # Titre H2 (##)
+    if l.startswith("## "):
+        pdf.section_title(l[3:].strip())
+        return
+
+    # Titre H1 (#)
+    if l.startswith("# "):
+        pdf.set_font("Helvetica", "B", 15)
+        pdf.set_text_color(*GRIS_FONCE)
+        pdf.cell(0, 8, l[2:].strip(), ln=True)
+        pdf.ln(2)
+        return
+
+    # Table markdown | ... | ... |
+    if l.startswith("|"):
+        # Skip separator lines |---|---|
+        if re.match(r"^\|\s*[-:]+\s*\|", l):
+            return
+        cells = [c.strip() for c in l.split("|") if c.strip() != ""]
+        _render_table_row(pdf, cells)
+        return
+
+    # Liste
+    if l.strip().startswith(("- ", "* ")):
+        txt = l.strip()[2:]
+        _render_texte_avec_gras(pdf, f"- {txt}", indent=8)
+        return
+
+    # Flechede recommandation
+    if l.strip().startswith("->"):
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(*BLEU)
+        pdf.set_x(12)
+        pdf.multi_cell(0, 5, l.strip())
+        return
+
+    # Ligne normale
+    _render_texte_avec_gras(pdf, l)
+
+
+def _render_table_row(pdf, cells: list[str]):
+    """Rend une ligne de tableau markdown."""
+    if not cells:
+        return
+    w = 190 / len(cells)
+    is_header = all(cell and not cell.startswith("-") for cell in cells) and pdf.get_font_style() != "B"
+    pdf.set_x(10)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(*GRIS_FONCE)
+    for c in cells:
+        # Colorer les gains/pertes visibles
+        couleur = GRIS_FONCE
+        if "+" in c and "%" in c:
+            couleur = VERT
+        elif "-" in c and "%" in c:
+            couleur = ROUGE
+        pdf.set_text_color(*couleur)
+        pdf.cell(w, 6, c[:35], border=1)
+    pdf.ln()
+
+
+def _render_texte_avec_gras(pdf, texte: str, indent: int = 10):
+    """Rend un texte en gerant les **gras**."""
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(*GRIS_FONCE)
+    pdf.set_x(indent)
+    # Simplification : on retire les ** et on met tout en gras si la ligne commence par **
+    if "**" in texte:
+        clean = texte.replace("**", "")
+        pdf.multi_cell(0, 5, clean)
+    else:
+        pdf.multi_cell(0, 5, texte)
+
+
+def _render_tableau_positions(pdf, positions):
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_fill_color(*BLEU)
+    pdf.set_text_color(255, 255, 255)
+    for h, w in [("Titre", 25), ("Halal", 22), ("Qte", 12), ("Poids", 15), ("Valeur", 28), ("Achat->Actuel", 40), ("Perf", 48)]:
+        pdf.cell(w, 7, h, border=1, align="C", fill=True)
+    pdf.ln()
+
+    pdf.set_font("Helvetica", "", 9)
+    for i, p in enumerate(positions):
+        statut = halal.check_halal(p["ticker"])
+        if statut["halal"] is True:
+            badge, badge_couleur = "HALAL", VERT
+        elif statut["halal"] is False:
+            badge, badge_couleur = "NON HALAL", ROUGE
+        else:
+            badge, badge_couleur = "A VERIFIER", ORANGE
+        fill = i % 2 == 0
+        if fill:
+            pdf.set_fill_color(*FOND_GRIS)
+        pdf.set_text_color(*GRIS_FONCE)
+        pdf.cell(25, 6, p["ticker"], border=1, fill=fill)
+        pdf.set_text_color(*badge_couleur)
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.cell(22, 6, badge, border=1, align="C", fill=fill)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(*GRIS_FONCE)
+        pdf.cell(12, 6, f"{p['quantite']:.0f}", border=1, align="R", fill=fill)
+        pdf.cell(15, 6, f"{p['poids_pct']:.1f}%", border=1, align="R", fill=fill)
+        pdf.cell(28, 6, _euros(p["valeur_actuelle_eur"]), border=1, align="R", fill=fill)
+        pdf.cell(40, 6, f"{p['prix_achat_eur']:.2f} -> {p['prix_actuel_eur']:.2f}", border=1, align="C", fill=fill)
+        pdf.set_text_color(*_classe_pv(p["plus_value_pct"]))
+        pdf.set_font("Helvetica", "B", 9)
+        signe = "+" if p["plus_value_eur"] >= 0 else ""
+        pdf.cell(48, 6, f"{signe}{_euros(p['plus_value_eur'])} ({signe}{p['plus_value_pct']:.1f}%)", border=1, align="R", fill=fill)
+        pdf.ln()
+
+
+def _render_tableau_alloc(pdf, alloc):
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_fill_color(*BLEU)
+    pdf.set_text_color(255, 255, 255)
+    for h, w in [("Categorie", 45), ("Cible", 35), ("Reel", 35), ("Ecart", 45)]:
+        pdf.cell(w, 7, h, border=1, align="C", fill=True)
+    pdf.ln()
+    pdf.set_font("Helvetica", "", 9)
+    for i, k in enumerate(("actions", "etf", "cash")):
+        if k not in alloc["ecart_pct"]:
+            continue
+        e = alloc["ecart_pct"][k]
+        couleur = VERT if abs(e) < 5 else ROUGE
+        signe = "+" if e >= 0 else ""
+        fill = i % 2 == 0
+        if fill:
+            pdf.set_fill_color(*FOND_GRIS)
+        pdf.set_text_color(*GRIS_FONCE)
+        pdf.cell(45, 6, k.capitalize(), border=1, fill=fill)
+        pdf.cell(35, 6, f"{alloc['cible'][k]}%", border=1, align="R", fill=fill)
+        pdf.cell(35, 6, f"{alloc['reel'][k]}%", border=1, align="R", fill=fill)
+        pdf.set_text_color(*couleur)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(45, 6, f"{signe}{e}%", border=1, align="R", fill=fill)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 9)
+
+
+def _bloc_colore(pdf, texte, fond, bordure):
+    pdf.set_fill_color(*fond)
+    pdf.set_draw_color(*bordure)
+    pdf.set_line_width(0.8)
+    y_debut = pdf.get_y()
+    pdf.set_x(10)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(*GRIS_FONCE)
+    pdf.multi_cell(190, 5, texte, fill=True, border=0)
+    y_fin = pdf.get_y()
+    pdf.rect(10, y_debut, 190, y_fin - y_debut, style="D")
+    pdf.ln(3)
+
+
+# Backward compat
+def generer_pdf() -> Path:
+    return generer_pdf_direct()

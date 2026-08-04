@@ -1,7 +1,8 @@
 """Point d'entree CLI de l'agent d'investissement.
 
 Usage :
-    python cli.py rapport         - genere le rapport quotidien
+    python cli.py rapport         - genere le rapport quotidien (Claude, texte)
+    python cli.py pdf             - genere le rapport en PDF (sans Claude, calculs Python)
     python cli.py portefeuille    - affiche le portefeuille (sans Claude)
     python cli.py check TICKER    - test rapide d'un ticker (halal + prix)
 """
@@ -51,6 +52,10 @@ def main():
     cmd = sys.argv[1]
     if cmd == "rapport":
         cmd_rapport()
+    elif cmd == "pdf":
+        from tools.pdf_report import generer_pdf
+        out = generer_pdf()
+        print(f"PDF genere : {out}")
     elif cmd == "portefeuille":
         cmd_portefeuille()
     elif cmd == "check" and len(sys.argv) >= 3:
